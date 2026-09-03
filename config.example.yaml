@@ -1,0 +1,44 @@
+site:
+  name: 淘宝星河
+  login_url: https://adstar.alimama.com/
+  # 该站点登录可能包含扫码、验证码和账号选择。首次由用户完成登录，
+  # 进入工作台后在命令窗口按 Enter，程序会保存会话供后续运行复用。
+  manual_login_confirmation: true
+  # 拿到登录后页面信息再填写以下两项，并可将上面的值改成 false。
+  login_success_selector: ""
+  login_success_url_contains: ""
+  login_timeout_seconds: 300
+  post_login_actions:
+    - type: click_role
+      role: link
+      name: 我的星河
+      exact: true
+
+browser:
+  headless: false
+  slow_mo_ms: 100
+  timeout_seconds: 30
+  pause_after_run: true
+
+output_dir: output
+
+tasks:
+  # 这是流程占位任务，获得报表页面地址和页面元素后再启用。
+  - name: 待配置报表
+    enabled: false
+    page_url: https://adstar.alimama.com/
+    actions:
+      - type: fill
+        selector: "待替换：开始日期输入框"
+        value: "{start_date}"
+      - type: fill
+        selector: "待替换：结束日期输入框"
+        value: "{end_date}"
+      - type: click
+        selector: "button:has-text('查询')"
+      - type: wait
+        selector: "待替换：查询结果元素"
+    result:
+      type: download
+      selector: "button:has-text('导出')"
+      filename: "原始报表_{start_date}_{end_date}_{run_time}.xlsx"

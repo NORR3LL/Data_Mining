@@ -1,0 +1,34 @@
+site:
+  name: 淘宝星河
+  login_url: https://adstar.alimama.com/
+  manual_login_confirmation: true
+  login_success_selector: ""
+  login_success_url_contains: ""
+  login_timeout_seconds: 300
+  post_login_actions:
+    - type: click_role
+      role: link
+      name: 我的星河
+      exact: true
+    - type: visit_details
+      # 流程设计阶段逐个停留；正式采集时改成 false。
+      pause_each: true
+      texts:
+        - Y26-Gotyasatch-大字报Q3
+        - Y26-Gotyasatch-UGCQ3
+        - Y26戈撒驰-UGC-Q3
+        - Y26-Gotyasatch-种草-Q3
+        - 戈撒驰7月
+        - Y26-Gotyasatch-种草
+
+browser:
+  headless: false
+  slow_mo_ms: 100
+  timeout_seconds: 30
+  # 流程设计阶段保留页面，正式自动运行时改为 false。
+  pause_after_run: true
+
+output_dir: output
+
+# 登录流程确认后，再逐项加入真实报表任务。
+tasks: []
