@@ -20,11 +20,26 @@ site:
           exact: false
         - type: fill_date_range_confirm_each
           separator_text: 至
-          start: "{start_date}"
-          end: "{end_date}"
+          start: "{requested_start_date}"
+          end: "{requested_end_date}"
         - type: extract_currency_metric
           label: 商家GMV
           field: merchant_gmv
+        - type: download_content_report
+          skip_if_missing_field: merchant_gmv
+          detail_text: 查看详情
+          effect_text: 推广效果
+          detail_heading: 数据明细
+          dimension_text: 内容维度
+          separator_text: 至
+          start: "{requested_start_date}"
+          end: "{requested_end_date}"
+          attribution_text: 归因口径
+          attribution_value: 30天
+          download_report_text: 下载报表
+          confirm_text: 确定
+          download_records_text: 下载记录
+          download_ready_timeout_seconds: 300
       texts:
         - Y26-Gotyasatch-大字报Q3
         - Y26-Gotyasatch-UGCQ3
@@ -38,8 +53,8 @@ site:
       effect_text: 推广效果
       dimension_text: 内容维度
       separator_text: 至
-      start: "{start_date}"
-      end: "{end_date}"
+      start: "{requested_start_date}"
+      end: "{requested_end_date}"
       attribution_text: 归因口径
       attribution_value: 30天
       detail_heading: 数据明细
@@ -63,13 +78,21 @@ site:
       effect_text: 推广效果
       separator_text: ""
       date_picker_selector: .next-range-picker
-      start: "{start_date}"
-      end: "{end_date}"
+      start: "{requested_start_date}"
+      end: "{requested_end_date}"
       attribution_text: 归因口径
       attribution_value: 30天
       metric_label: 商家GMV
       metric_field: merchant_gmv
       metric_refresh_timeout_seconds: 30
+      download_content_detail: true
+      detail_heading: 数据明细
+      dimension_text: 内容维度
+      detail_separator_text: 至
+      download_report_text: 下载报表
+      confirm_text: 确定
+      download_records_text: 下载记录
+      download_ready_timeout_seconds: 300
       pause_after_date: false
       pause_after_open: false
 
@@ -95,6 +118,9 @@ reporting:
   start_date: "2026-08-09"
   dictionary_sheets:
     - CPUV底表
+  dictionary_date_column: 时间
+  dictionary_target_column: 推广目标
+  dictionary_target_value: CPUV
   dictionary_id_column: 笔记/素材ID
   content_id_column: 内容ID
   gmv_column: 商家GMV

@@ -199,6 +199,8 @@ class Collector:
             )
         elif action_type == "setup_july_report":
             self._setup_july_report(page, action, variables)
+        elif action_type == "download_content_report":
+            self._download_content_report(page, action, variables)
         elif action_type == "open_nested_card_detail":
             self._open_nested_card_detail(page, action, variables)
         elif action_type == "locate_texts":
@@ -233,6 +235,7 @@ class Collector:
                     # 没有新标签页时，点击已经在当前页完成。
                     detail_page.wait_for_load_state("domcontentloaded")
                 LOGGER.info("已进入详情：%s", expected)
+                variables["project_detail_url"] = detail_page.url
                 for detail_action in action.get("detail_actions", []):
                     self._action(detail_page, detail_action, variables)
                 if action.get("pause_each", False):
@@ -244,6 +247,7 @@ class Collector:
                 page.get_by_text(expected, exact=True).first.wait_for(state="visible")
                 LOGGER.info("已返回项目列表：%s", expected)
             variables.pop("project_name", None)
+            variables.pop("project_detail_url", None)
         elif action_type == "select":
             page.locator(selector).select_option(self._format(str(action["value"]), variables))
         elif action_type == "check":
@@ -366,6 +370,92 @@ class Collector:
         page.get_by_text(project_name, exact=True).first.wait_for(state="visible")
         LOGGER.info("七月项目完成，已自动返回项目列表")
 
+    def _download_content_report(
+        self, page: Page, action: dict[str, Any], variables: dict[str, str]
+    ) -> None:
+        project_name = variables.get("project_name", "未命名项目")
+        project_detail_url = variables.get("project_detail_url", page.url)
+        skip_field = str(action.get("skip_if_missing_field", "merchant_gmv"))
+        if variables.get(skip_field) in (None, "", "na", "null"):
+            LOGGER.info("%s 的 %s 为空，跳过内容维度明细下载", project_name, skip_field)
+            return
+        if page.url != project_detail_url:
+            page.goto(project_detail_url, wait_until="domcontentloaded")
+            page.get_by_text(str(action.get("detail_text", "查看详情")), exact=False).first.wait_for(
+                state="visible"
+            )
+        self._click_topmost_visible_text(
+            page, str(action.get("detail_text", "查看详情")), exact=False
+        )
+        LOGGER.info("已进入订单详情：%s", project_name)
+        self._action(
+            page,
+            {"type": "click_text", "text": action.get("effect_text", "推广效果"), "exact": False},
+            variables,
+        )
+
+        detail_heading = page.get_by_text(
+            str(action.get("detail_heading", "数据明细")), exact=True
+        ).first
+        detail_heading.wait_for(state="visible")
+        detail_section = detail_heading.locator(
+            "xpath=ancestor::*[.//*[contains(normalize-space(.), '下载报表')]][1]"
+        )
+        self._click_visible_text_in_scope(
+            detail_section, str(action.get("dimension_text", "内容维度"))
+        )
+        LOGGER.info("已进入内容维度：%s", project_name)
+
+        actual_start, actual_end = self._fill_date_range_confirm_each(
+            page,
+            self._format(str(action["start"]), variables),
+            self._format(str(action["end"]), variables),
+            str(action.get("separator_text", "至")),
+        )
+        variables["start_date"] = actual_start
+        variables["end_date"] = actual_end
+        if action.get("pause_before_attribution", False):
+            input("内容维度日期已设置，请检查归因口径控件，完成后按 Enter：")
+
+        attributions = detail_section.get_by_text(
+            str(action.get("attribution_text", "归因口径")), exact=False
+        )
+        for index in range(attributions.count()):
+            if attributions.nth(index).is_visible():
+                attributions.nth(index).click()
+                break
+        else:
+            raise RuntimeError("数据明细模块中未找到可见的归因口径控件")
+        self._action(
+            page,
+            {"type": "click_text", "text": action.get("attribution_value", "30天"), "exact": True},
+            variables,
+        )
+        LOGGER.info("明细筛选已完成：%s 至 %s，归因口径 30天", actual_start, actual_end)
+
+        self._click_visible_text_in_scope(
+            detail_section, str(action.get("download_report_text", "下载报表"))
+        )
+        confirm = page.get_by_role(
+            "button", name=str(action.get("confirm_text", "确定")), exact=True
+        )
+        confirm.wait_for(state="visible")
+        confirm.click()
+        self._wait_for_visible_text(
+            page, str(action.get("download_records_text", "下载记录"))
+        )
+        downloaded = self._download_latest_record(
+            page,
+            variables,
+            timeout_seconds=int(action.get("download_ready_timeout_seconds", 300)),
+            output_subdir="detail_reports",
+            filename_prefix=f"{project_name}_内容维度",
+        )
+        LOGGER.info("项目内容维度明细已下载：%s", downloaded)
+        page.goto(project_detail_url, wait_until="domcontentloaded")
+        page.get_by_text("查看全部数据", exact=False).first.wait_for(state="visible")
+        LOGGER.info("明细下载完成，已返回项目一级详情：%s", project_name)
+
     def _open_nested_card_detail(
         self, page: Page, action: dict[str, Any], variables: dict[str, str]
     ) -> None:
@@ -469,6 +559,8 @@ class Collector:
             field=str(action.get("metric_field", "merchant_gmv")),
             variables=variables,
         )
+        if action.get("download_content_detail", False):
+            self._download_current_content_detail(page, action, variables)
         variables.pop("project_name", None)
         LOGGER.info(
             "特殊项目筛选及提取完成：%s 至 %s，归因口径 %s",
@@ -478,6 +570,65 @@ class Collector:
         )
         if action.get("pause_after_open", False):
             input(f"已完成“{child_name}”筛选及 GMV 提取，检查完成后按 Enter：")
+
+    def _download_current_content_detail(
+        self, page: Page, action: dict[str, Any], variables: dict[str, str]
+    ) -> None:
+        project_name = variables.get("project_name", "未命名项目")
+        detail_heading = page.get_by_text(
+            str(action.get("detail_heading", "数据明细")), exact=True
+        ).first
+        detail_heading.wait_for(state="visible")
+        detail_section = detail_heading.locator(
+            "xpath=ancestor::*[.//*[contains(normalize-space(.), '下载报表')]][1]"
+        )
+        self._click_visible_text_in_scope(
+            detail_section, str(action.get("dimension_text", "内容维度"))
+        )
+        LOGGER.info("已进入内容维度：%s", project_name)
+
+        actual_start, actual_end = self._fill_date_range_confirm_each(
+            page,
+            self._format(str(action["start"]), variables),
+            self._format(str(action["end"]), variables),
+            str(action.get("detail_separator_text", "至")),
+        )
+        variables["start_date"] = actual_start
+        variables["end_date"] = actual_end
+
+        attributions = detail_section.get_by_text(
+            str(action.get("attribution_text", "归因口径")), exact=False
+        )
+        for index in range(attributions.count()):
+            if attributions.nth(index).is_visible():
+                attributions.nth(index).click()
+                break
+        else:
+            raise RuntimeError("数据明细模块中未找到可见的归因口径控件")
+        self._action(
+            page,
+            {"type": "click_text", "text": action.get("attribution_value", "30天"), "exact": True},
+            variables,
+        )
+        self._click_visible_text_in_scope(
+            detail_section, str(action.get("download_report_text", "下载报表"))
+        )
+        confirm = page.get_by_role(
+            "button", name=str(action.get("confirm_text", "确定")), exact=True
+        )
+        confirm.wait_for(state="visible")
+        confirm.click()
+        self._wait_for_visible_text(
+            page, str(action.get("download_records_text", "下载记录"))
+        )
+        downloaded = self._download_latest_record(
+            page,
+            variables,
+            timeout_seconds=int(action.get("download_ready_timeout_seconds", 300)),
+            output_subdir="detail_reports",
+            filename_prefix=f"{project_name}_内容维度",
+        )
+        LOGGER.info("特殊项目内容维度明细已下载：%s", downloaded)
 
     @staticmethod
     def _click_visible_text_in_scope(scope: Any, text: str) -> None:
@@ -522,6 +673,8 @@ class Collector:
         page: Page,
         variables: dict[str, str],
         timeout_seconds: int,
+        output_subdir: str = "july_reports",
+        filename_prefix: str = "戈撒驰7月_内容维度",
     ) -> Path:
         deadline = time.monotonic() + timeout_seconds
         time_pattern = re.compile(r"20\d{2}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}:\d{2}(?::\d{2})?")
@@ -553,9 +706,9 @@ class Collector:
                         download = download_info.value
                         extension = Path(download.suggested_filename).suffix or ".xlsx"
                         filename = self._safe_filename(
-                            f"戈撒驰7月_内容维度_{variables['start_date']}_{variables['end_date']}_{variables['run_time']}{extension}"
+                            f"{filename_prefix}_{variables['start_date']}_{variables['end_date']}_{variables['run_time']}{extension}"
                         )
-                        destination = self.output / "july_reports" / filename
+                        destination = self.output / output_subdir / filename
                         destination.parent.mkdir(parents=True, exist_ok=True)
                         download.save_as(destination)
                         if not destination.exists() or destination.stat().st_size == 0:
@@ -696,6 +849,7 @@ class Collector:
         variables: dict[str, str],
     ) -> None:
         normalized = self._read_currency_metric(page, label)
+        variables[field] = normalized
         record = {
             "project_name": variables.get("project_name", ""),
             "start_date": variables["start_date"],
@@ -776,9 +930,13 @@ class Collector:
 def default_variables(start_date: str | None, end_date: str | None) -> dict[str, str]:
     now = datetime.now()
     today = now.date().isoformat()
+    requested_start = start_date or "2026-08-09"
+    requested_end = end_date or today
     return {
-        "start_date": start_date or "2026-08-09",
-        "end_date": end_date or today,
+        "start_date": requested_start,
+        "end_date": requested_end,
+        "requested_start_date": requested_start,
+        "requested_end_date": requested_end,
         "run_date": today,
         "run_time": now.strftime("%Y%m%d_%H%M%S"),
     }

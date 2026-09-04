@@ -25,7 +25,13 @@ def _latest_file(directory: Path, pattern: str) -> Path:
 
 
 def _load_dictionary_ids(
-    workbook: Path, id_column: str, sheet_names: list[str]
+    workbook: Path,
+    id_column: str,
+    sheet_names: list[str],
+    date_column: str,
+    start_date: str,
+    target_column: str,
+    target_value: str,
 ) -> set[str]:
     ids: set[str] = set()
     excel = pd.ExcelFile(workbook)
@@ -34,8 +40,14 @@ def _load_dictionary_ids(
         raise ValueError(f"字典工作簿缺少工作表：{sorted(missing_sheets)}")
     for sheet_name in sheet_names:
         frame = pd.read_excel(workbook, sheet_name=sheet_name, dtype=str)
-        if id_column in frame.columns:
-            ids.update(value for value in _clean_id(frame[id_column]) if value)
+        required = {id_column, date_column, target_column}
+        missing = required - set(frame.columns)
+        if missing:
+            raise ValueError(f"字典工作表“{sheet_name}”缺少字段：{sorted(missing)}")
+        dates = pd.to_datetime(frame[date_column], errors="coerce")
+        targets = frame[target_column].fillna("").astype(str).str.strip()
+        mask = (dates >= pd.Timestamp(start_date)) & (targets == target_value)
+        ids.update(value for value in _clean_id(frame.loc[mask, id_column]) if value)
     if not ids:
         raise ValueError(f"字典工作簿中未找到有效的“{id_column}”")
     return ids
@@ -85,7 +97,16 @@ def generate_gmv_report(root: Path, config: dict[str, Any]) -> Path:
     ]
     content_id_column = str(report_config.get("content_id_column", "内容ID"))
     gmv_column = str(report_config.get("gmv_column", "商家GMV"))
-    dictionary_ids = _load_dictionary_ids(dictionary_file, id_column, dictionary_sheets)
+    start_date = str(report_config.get("start_date", "2026-08-09"))
+    dictionary_ids = _load_dictionary_ids(
+        dictionary_file,
+        id_column,
+        dictionary_sheets,
+        str(report_config.get("dictionary_date_column", "时间")),
+        start_date,
+        str(report_config.get("dictionary_target_column", "推广目标")),
+        str(report_config.get("dictionary_target_value", "CPUV")),
+    )
     july_gmv, matched = _calculate_july_gmv(
         july_csv, dictionary_ids, content_id_column, gmv_column
     )
@@ -99,7 +120,6 @@ def generate_gmv_report(root: Path, config: dict[str, Any]) -> Path:
         output_value = None if value in (None, "", "na", "null") else float(value)
         rows.append({"项目名": str(project_name), "商家GMV": output_value})
 
-    start_date = str(report_config.get("start_date", "2026-08-09"))
     current_day = datetime.now().astimezone().date().isoformat()
     output_dir = root / report_config.get("output_dir", "output/final_reports")
     output_dir.mkdir(parents=True, exist_ok=True)
