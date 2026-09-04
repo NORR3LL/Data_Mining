@@ -11,9 +11,9 @@ site:
       name: 我的星河
       exact: true
     - type: visit_details
-      enabled: false
+      enabled: true
       # 流程设计阶段逐个停留；正式采集时改成 false。
-      pause_each: true
+      pause_each: false
       detail_actions:
         - type: click_text
           text: 查看全部数据
@@ -31,7 +31,7 @@ site:
         - Y26戈撒驰-UGC-Q3
         - Y26-Gotyasatch-种草-Q3
     - type: setup_july_report
-      enabled: false
+      enabled: true
       project_name: 戈撒驰7月
       child_name: gys7月达人
       detail_text: 查看详情
@@ -47,11 +47,11 @@ site:
       confirm_text: 确定
       download_records_text: 下载记录
       download_ready_timeout_seconds: 300
-      pause_before_download: true
-      pause_after_setup: true
+      pause_before_download: false
+      pause_after_setup: false
     - type: visit_details
       enabled: false
-      pause_each: true
+      pause_each: false
       detail_actions: []
       texts:
         - Y26-Gotyasatch-种草
@@ -61,7 +61,17 @@ site:
       child_name: Y26-Gotyasatch戈撒驰书包-种草视频-第一波
       detail_text: 查看详情
       effect_text: 推广效果
-      pause_after_open: true
+      separator_text: ""
+      date_picker_selector: .next-range-picker
+      start: "{start_date}"
+      end: "{end_date}"
+      attribution_text: 归因口径
+      attribution_value: 30天
+      metric_label: 商家GMV
+      metric_field: merchant_gmv
+      metric_refresh_timeout_seconds: 30
+      pause_after_date: false
+      pause_after_open: false
 
   # 以下项目不执行上面的标准日期与 GMV 流程，后续分别配置特殊规则。
   special_projects:
@@ -72,10 +82,30 @@ browser:
   headless: false
   slow_mo_ms: 100
   timeout_seconds: 30
-  # 流程设计阶段保留页面，正式自动运行时改为 false。
-  pause_after_run: true
+  # 正式流程只保留登录确认，任务结束后自动关闭浏览器。
+  pause_after_run: false
 
 output_dir: output
+
+reporting:
+  gmv_data_file: runtime/extracted_data.json
+  dictionary_file: Gotyasatch戈撒驰书包日报0902.xlsx
+  july_report_dir: output/july_reports
+  output_dir: output/final_reports
+  start_date: "2026-08-09"
+  dictionary_sheets:
+    - CPUV底表
+  dictionary_id_column: 笔记/素材ID
+  content_id_column: 内容ID
+  gmv_column: 商家GMV
+  july_project_name: 戈撒驰7月
+  project_order:
+    - Y26-Gotyasatch-大字报Q3
+    - Y26-Gotyasatch-UGCQ3
+    - Y26戈撒驰-UGC-Q3
+    - Y26-Gotyasatch-种草-Q3
+    - 戈撒驰7月
+    - Y26-Gotyasatch-种草
 
 # 登录流程确认后，再逐项加入真实报表任务。
 tasks: []

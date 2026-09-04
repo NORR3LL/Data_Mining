@@ -1,6 +1,6 @@
 # Python RPA 报表采集器
 
-第一阶段只做 RPA 原始采集，不解析或清洗数据。程序使用 Playwright 打开真实浏览器；首次运行时由用户手工登录并保存登录状态，随后按 YAML 配置访问报表页面、设置筛选条件并下载原始报表。
+程序使用 Playwright 打开真实浏览器，完成淘宝星河项目数据采集和报表下载；随后使用 pandas 将七月报表的内容 ID 与日报 `CPUV底表` 的“笔记/素材ID”匹配，汇总商家 GMV 并生成最终 Excel。用户登录确认后，业务流程连续执行，无需额外确认。
 
 ## 安装
 
@@ -20,7 +20,7 @@ python main.py --start-date 2026-09-01 --end-date 2026-09-03
 
 浏览器弹出后，首次需要手工完成密码、短信、扫码或验证码登录；进入工作台后回到命令窗口按 Enter。`runtime/auth_state.json` 保存登录凭证，不要发送给其他人，也不要提交到版本库。登录失效后可删除该文件并重新运行。
 
-输出文件位于 `output`。每次运行的任务状态清单位于 `logs/manifest_*.json`；失败任务的页面截图位于 `logs/screenshots`，运行日志保存在 `collector.log`。
+原始下载和最终报表位于 `output`，临时 GMV 位于 `runtime/extracted_data.json`。每次运行的任务状态清单位于 `logs/manifest_*.json`；失败任务的页面截图位于 `logs/screenshots`，运行日志保存在 `collector.log`。这些业务数据与运行文件均被 Git 忽略。
 
 ## 配置动作
 
@@ -40,7 +40,7 @@ python main.py --start-date 2026-09-01 --end-date 2026-09-03
 - `wait`：等待元素出现。
 - `wait_ms`：必要时固定等待若干毫秒。
 
-第一阶段的结果类型仅为 `download`：点击网站导出按钮并保存原始文件。网页表格解析、清洗和写入 Excel 模板留到第二阶段。
+RPA 完成后会自动运行数据处理：仅使用 `Gotyasatch戈撒驰书包日报0902.xlsx` 的 `CPUV底表` 作为内容 ID 白名单，过滤七月下载报表并汇总商家 GMV。最终工作簿位于 `output/final_reports`，包含 `GMV报表` 和 `7月匹配明细`。
 
 ## 打包 Windows 程序
 
@@ -57,4 +57,4 @@ Playwright 的浏览器文件体积较大，实际交付时建议采用 `--onedi
 
 - 页面选择器必须根据目标网站实际 DOM 调整，尽量选择稳定的名称、标签或测试 ID。
 - 不绕过验证码或访问控制；采集范围和频率应符合账号权限及平台规则。
-- 当前阶段不会修改下载到的 Excel、CSV 或其他报表文件。
+- 字典工作簿、下载 CSV、临时 JSON、最终 Excel、登录状态与日志均属于数据或运行产物，不应提交到版本库。

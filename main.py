@@ -7,6 +7,7 @@ from pathlib import Path
 
 from rpa_collector.collector import Collector, default_variables
 from rpa_collector.config import load_config
+from rpa_collector.reporting import generate_gmv_report
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,8 +27,10 @@ def main() -> int:
     )
     try:
         config_path = Path(args.config)
-        collector = Collector(load_config(config_path), config_path)
+        config = load_config(config_path)
+        collector = Collector(config, config_path)
         files = collector.run(default_variables(args.start_date, args.end_date))
+        files.append(generate_gmv_report(config_path.resolve().parent, config))
         print("\n采集完成：")
         for file in files:
             print(f"- {file.resolve()}")
@@ -39,4 +42,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

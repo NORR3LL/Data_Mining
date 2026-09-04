@@ -18,7 +18,7 @@ browser:
   headless: false
   slow_mo_ms: 100
   timeout_seconds: 30
-  pause_after_run: true
+  pause_after_run: false
 
 output_dir: output
 

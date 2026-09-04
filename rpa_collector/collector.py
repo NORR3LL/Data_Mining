@@ -22,7 +22,7 @@ class Collector:
         self.runtime = self.root / "runtime"
         self.output = self.root / config.get("output_dir", "output")
         self.auth_file = self.runtime / "auth_state.json"
-        self.extracted_records: list[dict[str, str]] = []
+        self.extracted_records: list[dict[str, str]] = self._load_extracted_records()
 
     def run(self, variables: dict[str, str]) -> list[Path]:
         self.runtime.mkdir(parents=True, exist_ok=True)
@@ -200,7 +200,7 @@ class Collector:
         elif action_type == "setup_july_report":
             self._setup_july_report(page, action, variables)
         elif action_type == "open_nested_card_detail":
-            self._open_nested_card_detail(page, action)
+            self._open_nested_card_detail(page, action, variables)
         elif action_type == "locate_texts":
             for raw_text in action["texts"]:
                 expected = self._format(str(raw_text), variables)
@@ -272,6 +272,7 @@ class Collector:
     def _setup_july_report(
         self, page: Page, action: dict[str, Any], variables: dict[str, str]
     ) -> None:
+        list_url = page.url
         project_name = str(action["project_name"])
         project_title = page.get_by_text(project_name, exact=True).first
         project_title.wait_for(state="visible")
@@ -359,10 +360,15 @@ class Collector:
             timeout_seconds=int(action.get("download_ready_timeout_seconds", 300)),
         )
         LOGGER.info("七月项目报表已下载：%s", downloaded)
-        if action.get("pause_after_setup", True):
+        if action.get("pause_after_setup", False):
             input("七月项目报表已下载，检查完成后按 Enter：")
+        page.goto(list_url, wait_until="domcontentloaded")
+        page.get_by_text(project_name, exact=True).first.wait_for(state="visible")
+        LOGGER.info("七月项目完成，已自动返回项目列表")
 
-    def _open_nested_card_detail(self, page: Page, action: dict[str, Any]) -> None:
+    def _open_nested_card_detail(
+        self, page: Page, action: dict[str, Any], variables: dict[str, str]
+    ) -> None:
         project_name = str(action["project_name"])
         project_title = page.get_by_text(project_name, exact=True).first
         project_title.wait_for(state="visible")
@@ -393,11 +399,85 @@ class Collector:
         self._action(
             page,
             {"type": "click_text", "text": effect_text, "exact": False},
-            {},
+            variables,
         )
         LOGGER.info("已点击：%s", effect_text)
-        if action.get("pause_after_open", True):
-            input(f"已进入“{child_name}”详情并点击“{effect_text}”，检查完成后按 Enter：")
+
+        actual_start, actual_end = self._fill_date_range_confirm_each(
+            page,
+            self._format(str(action["start"]), variables),
+            self._format(str(action["end"]), variables),
+            str(action.get("separator_text", "")),
+            str(action.get("date_picker_selector", "")),
+        )
+        variables["start_date"] = actual_start
+        variables["end_date"] = actual_end
+        if action.get("pause_after_date", False):
+            input(
+                f"日期已设置为 {actual_start} 至 {actual_end}，"
+                "请在页面确认日期和数据已刷新，然后按 Enter："
+            )
+
+        summary_row = page.locator(
+            f'{action.get("date_picker_selector", ".next-range-picker")}:visible'
+        ).first.locator(
+            "xpath=ancestor::div[contains(@class, 'next-box') and "
+            ".//label[contains(normalize-space(.), '归因口径')]][1]"
+        )
+        attribution_label = summary_row.locator(
+            "label.next-input-label",
+            has_text=str(action.get("attribution_text", "归因口径")),
+        )
+        metric_label = str(action.get("metric_label", "商家GMV"))
+        previous_metric = self._read_currency_metric(page, metric_label)
+        attribution_label.first.wait_for(state="visible")
+        attribution_label.first.locator("xpath=ancestor::span[contains(@class, 'next-select')][1]").click()
+        LOGGER.info("已点击推广效果汇总区的归因口径")
+        self._action(
+            page,
+            {
+                "type": "click_text",
+                "text": action.get("attribution_value", "30天"),
+                "exact": True,
+            },
+            variables,
+        )
+        attribution_value = str(action.get("attribution_value", "30天"))
+        selected_value = summary_row.locator(f'em[title="{attribution_value}"]')
+        selected_value.first.wait_for(state="visible", timeout=10000)
+        deadline = time.monotonic() + float(action.get("metric_refresh_timeout_seconds", 30))
+        refreshed_metric = previous_metric
+        while time.monotonic() < deadline:
+            page.wait_for_timeout(500)
+            refreshed_metric = self._read_currency_metric(page, metric_label)
+            if refreshed_metric != previous_metric:
+                LOGGER.info(
+                    "归因切换后 %s 已刷新：%s -> %s",
+                    metric_label,
+                    previous_metric,
+                    refreshed_metric,
+                )
+                break
+        else:
+            raise RuntimeError(
+                f"归因口径已显示 {attribution_value}，但 {metric_label} 在等待后仍为 {previous_metric}"
+            )
+        variables["project_name"] = project_name
+        self._extract_currency_metric(
+            page,
+            label=metric_label,
+            field=str(action.get("metric_field", "merchant_gmv")),
+            variables=variables,
+        )
+        variables.pop("project_name", None)
+        LOGGER.info(
+            "特殊项目筛选及提取完成：%s 至 %s，归因口径 %s",
+            actual_start,
+            actual_end,
+            action.get("attribution_value", "30天"),
+        )
+        if action.get("pause_after_open", False):
+            input(f"已完成“{child_name}”筛选及 GMV 提取，检查完成后按 Enter：")
 
     @staticmethod
     def _click_visible_text_in_scope(scope: Any, text: str) -> None:
@@ -407,6 +487,24 @@ class Collector:
                 matches.nth(index).click()
                 return
         raise RuntimeError(f"指定区域内未找到可见文本“{text}”")
+
+    @staticmethod
+    def _click_topmost_visible_text(page: Page, text: str, exact: bool) -> None:
+        candidates: list[tuple[float, Any]] = []
+        for frame in page.frames:
+            matches = frame.get_by_text(text, exact=exact)
+            for index in range(matches.count()):
+                node = matches.nth(index)
+                if not node.is_visible():
+                    continue
+                box = node.bounding_box()
+                if box is not None:
+                    candidates.append((box["y"], node))
+        if not candidates:
+            raise RuntimeError(f"未找到可见文本“{text}”")
+        _, target = min(candidates, key=lambda item: item[0])
+        target.click()
+        LOGGER.info("已点击最上方可见文本：%s", text)
 
     @staticmethod
     def _wait_for_visible_text(page: Page, text: str, timeout_seconds: int = 30) -> None:
@@ -489,31 +587,83 @@ class Collector:
             LOGGER.info("已选择日期：%s", value)
 
     def _fill_date_range_confirm_each(
-        self, page: Page, start: str, end: str, separator_text: str
+        self,
+        page: Page,
+        start: str,
+        end: str,
+        separator_text: str,
+        date_picker_selector: str = "",
     ) -> tuple[str, str]:
-        visible_separators = page.locator(".mux-picker-range-separator:visible").filter(
-            has_text=separator_text
-        )
-        separator = (
-            visible_separators.first
-            if visible_separators.count()
-            else page.get_by_text(separator_text, exact=True).first
-        )
-        separator.wait_for(state="visible")
-        container = separator.locator("xpath=ancestor::*[count(.//input) >= 2][1]")
-        if container.locator("input:visible").count() < 2:
-            raise RuntimeError("未能在日期范围控件中找到两个可见输入框")
+        visible_separators = page.locator(".mux-picker-range-separator:visible")
+        if separator_text:
+            visible_separators = visible_separators.filter(has_text=separator_text)
+        fields: list[Any]
+        if date_picker_selector:
+            picker = page.locator(f"{date_picker_selector}:visible").filter(
+                has=page.locator('input[placeholder="起始日期"]')
+            )
+            picker.first.wait_for(state="visible", timeout=15000)
+            if picker.count() != 1:
+                raise RuntimeError(f"顶部日期控件定位异常：匹配到 {picker.count()} 个")
+            start_field = picker.first.locator('input[placeholder="起始日期"]')
+            end_field = picker.first.locator('input[placeholder="结束日期"]')
+            start_field.first.wait_for(state="visible", timeout=15000)
+            end_field.first.wait_for(state="visible", timeout=15000)
+            if start_field.count() != 1 or end_field.count() != 1:
+                raise RuntimeError(
+                    "推广效果汇总区日期框定位异常："
+                    f"起始日期 {start_field.count()} 个，结束日期 {end_field.count()} 个"
+                )
+            fields = [start_field.first, end_field.first]
+            LOGGER.info("已通过 %s 精确定位推广效果汇总区日期框", date_picker_selector)
+        elif visible_separators.count():
+            positioned: list[tuple[float, Any]] = []
+            for index in range(visible_separators.count()):
+                candidate = visible_separators.nth(index)
+                box = candidate.bounding_box()
+                if box is not None:
+                    positioned.append((box["y"], candidate))
+            if not positioned:
+                raise RuntimeError("可见日期范围分隔符没有可操作位置")
+            _, separator = min(positioned, key=lambda item: item[0])
+            separator.wait_for(state="visible")
+            container = separator.locator("xpath=ancestor::*[count(.//input) >= 2][1]")
+            if container.locator("input:visible").count() < 2:
+                raise RuntimeError("未能在日期范围控件中找到两个可见输入框")
+            fields = [container.locator("input:visible").nth(index) for index in range(2)]
+        elif separator_text:
+            separator = page.get_by_text(separator_text, exact=True).first
+            separator.wait_for(state="visible")
+            container = separator.locator("xpath=ancestor::*[count(.//input) >= 2][1]")
+            if container.locator("input:visible").count() < 2:
+                raise RuntimeError("未能在日期范围控件中找到两个可见输入框")
+            fields = [container.locator("input:visible").nth(index) for index in range(2)]
+        else:
+            date_fields: list[tuple[float, float, Any]] = []
+            visible_inputs = page.locator("input:visible")
+            for index in range(visible_inputs.count()):
+                candidate = visible_inputs.nth(index)
+                if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", candidate.input_value()):
+                    continue
+                box = candidate.bounding_box()
+                if box is not None:
+                    date_fields.append((box["y"], box["x"], candidate))
+            if len(date_fields) < 2:
+                raise RuntimeError("未找到无文字日期范围控件的两个可见日期输入框")
+            date_fields.sort(key=lambda item: (item[0], item[1]))
+            fields = [date_fields[0][2], date_fields[1][2]]
+            LOGGER.info("已按页面位置定位最上方的无文字日期范围控件")
 
         actual_values: list[str] = []
         for index, (name, value) in enumerate((("开始日期", start), ("结束日期", end))):
-            field = container.locator("input:visible").nth(index)
+            field = fields[index]
             if field.get_attribute("readonly") is not None:
                 field.evaluate("element => element.removeAttribute('readonly')")
             field.click()
             field.fill(value)
             field.press("Enter")
             page.wait_for_timeout(800)
-            actual = container.locator("input:visible").nth(index).input_value()
+            actual = fields[index].input_value()
             if index == 0 and actual != value:
                 raise RuntimeError(f"{name}确认失败：期望 {value}，实际 {actual}")
             if index == 1 and actual != value:
@@ -527,7 +677,16 @@ class Collector:
                 LOGGER.warning("平台尚无 %s 数据，采用最近可用日期：%s", value, actual)
             actual_values.append(actual)
             LOGGER.info("%s已输入并按 Enter 确认：%s", name, actual)
-        return actual_values[0], actual_values[1]
+
+        page.wait_for_timeout(1500)
+        final_values = [field.input_value() for field in fields]
+        if final_values != actual_values:
+            raise RuntimeError(
+                "日期在确认后被页面回滚："
+                f"确认时 {actual_values[0]} 至 {actual_values[1]}，"
+                f"最终 {final_values[0]} 至 {final_values[1]}"
+            )
+        return final_values[0], final_values[1]
 
     def _extract_currency_metric(
         self,
@@ -536,11 +695,31 @@ class Collector:
         field: str,
         variables: dict[str, str],
     ) -> None:
+        normalized = self._read_currency_metric(page, label)
+        record = {
+            "project_name": variables.get("project_name", ""),
+            "start_date": variables["start_date"],
+            "end_date": variables["end_date"],
+            field: normalized,
+        }
+        self.extracted_records = [
+            existing
+            for existing in self.extracted_records
+            if existing.get("project_name") != record["project_name"]
+        ]
+        self.extracted_records.append(record)
+        LOGGER.info("已提取 %s：%s", label, normalized)
+        self._write_extracted_records()
+
+    @staticmethod
+    def _read_currency_metric(page: Page, label: str) -> str:
         pattern = r"[¥￥]\s*([0-9][0-9,]*(?:\.\d+)?)"
         for frame in page.frames:
             labels = frame.get_by_text(label, exact=False)
             for index in range(labels.count()):
                 node = labels.nth(index)
+                if not node.is_visible():
+                    continue
                 for _level in range(8):
                     text = node.inner_text()
                     match = re.search(pattern, text)
@@ -550,24 +729,24 @@ class Collector:
                         for line in lines
                     )
                     if match or missing:
-                        normalized = (
+                        return (
                             str(Decimal(match.group(1).replace(",", "")))
                             if match
                             else "na"
                         )
-                        self.extracted_records.append(
-                            {
-                                "project_name": variables.get("project_name", ""),
-                                "start_date": variables["start_date"],
-                                "end_date": variables["end_date"],
-                                field: normalized,
-                            }
-                        )
-                        LOGGER.info("已提取 %s：%s", label, normalized)
-                        self._write_extracted_records()
-                        return
                     node = node.locator("xpath=..")
         raise RuntimeError(f"未能从“{label}”附近提取人民币金额")
+
+    def _load_extracted_records(self) -> list[dict[str, str]]:
+        path = self.runtime / "extracted_data.json"
+        if not path.exists():
+            return []
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            LOGGER.warning("已有临时数据无法读取，将在本轮重新生成：%s", path)
+            return []
+        return data if isinstance(data, list) else []
 
     def _write_extracted_records(self) -> None:
         if not self.extracted_records:
