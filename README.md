@@ -27,11 +27,16 @@ python main.py --start-date 2026-09-01 --end-date 2026-09-03
 - `fill`：填写输入框，支持 `{start_date}`、`{end_date}`、`{run_date}` 和 `{run_time}`。
 - `click`：点击页面元素。
 - `click_role`：按元素角色和名称精确点击，例如链接“我的星河”；比坐标定位稳定。
+- `click_text`：按可见文字精确点击页面元素。
 - `locate_texts`：逐一精确定位一组页面文本，并把匹配数量写入日志。
 - `visit_details`：按项目名称定位卡片，悬停后点击右侧详情图标，再返回列表。
+- `setup_july_report`：进入七月特殊项目的达人卡片、推广效果和内容维度页面。
+- `open_nested_card_detail`：进入特殊项目，并按名称打开其中的嵌套卡片详情。
 - `select`：选择原生下拉框选项。
 - `check` / `uncheck`：勾选或取消复选框。
 - `press`：向元素发送按键，例如 `Enter`。
+- `select_date_range`：打开日期范围控件，并按完整日期属性选择起止日期。
+- `fill_date_range_confirm_each`：分别填写开始、结束日期，并在每次输入后按 Enter 确认。
 - `wait`：等待元素出现。
 - `wait_ms`：必要时固定等待若干毫秒。
 

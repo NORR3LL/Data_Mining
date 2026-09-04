@@ -11,15 +11,62 @@ site:
       name: 我的星河
       exact: true
     - type: visit_details
+      enabled: false
       # 流程设计阶段逐个停留；正式采集时改成 false。
       pause_each: true
+      detail_actions:
+        - type: click_text
+          text: 查看全部数据
+          exact: false
+        - type: fill_date_range_confirm_each
+          separator_text: 至
+          start: "{start_date}"
+          end: "{end_date}"
+        - type: extract_currency_metric
+          label: 商家GMV
+          field: merchant_gmv
       texts:
         - Y26-Gotyasatch-大字报Q3
         - Y26-Gotyasatch-UGCQ3
         - Y26戈撒驰-UGC-Q3
         - Y26-Gotyasatch-种草-Q3
-        - 戈撒驰7月
+    - type: setup_july_report
+      enabled: false
+      project_name: 戈撒驰7月
+      child_name: gys7月达人
+      detail_text: 查看详情
+      effect_text: 推广效果
+      dimension_text: 内容维度
+      separator_text: 至
+      start: "{start_date}"
+      end: "{end_date}"
+      attribution_text: 归因口径
+      attribution_value: 30天
+      detail_heading: 数据明细
+      download_report_text: 下载报表
+      confirm_text: 确定
+      download_records_text: 下载记录
+      download_ready_timeout_seconds: 300
+      pause_before_download: true
+      pause_after_setup: true
+    - type: visit_details
+      enabled: false
+      pause_each: true
+      detail_actions: []
+      texts:
         - Y26-Gotyasatch-种草
+    - type: open_nested_card_detail
+      enabled: true
+      project_name: Y26-Gotyasatch-种草
+      child_name: Y26-Gotyasatch戈撒驰书包-种草视频-第一波
+      detail_text: 查看详情
+      effect_text: 推广效果
+      pause_after_open: true
+
+  # 以下项目不执行上面的标准日期与 GMV 流程，后续分别配置特殊规则。
+  special_projects:
+    - 戈撒驰7月
+    - Y26-Gotyasatch-种草
 
 browser:
   headless: false
